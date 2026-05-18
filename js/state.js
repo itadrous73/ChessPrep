@@ -11,6 +11,7 @@ const App = {
   mode: 'play',         // 'play' | 'edit'
   chess: new Chess(),
   path: [],             // SAN path from root
+  oppChoices: [],       // Context chain of opponent branch choices for SRS logic
   lastMove: null,       // last move object for highlight
   selectedSquare: null, // selected square in coord {r,f}
   pendingPromo: null,   // pending promotion move
@@ -36,6 +37,7 @@ const App = {
     this.activeRepIdx = (typeof st.activeRepIdx === 'number' && st.activeRepIdx < this.reps.length) ? st.activeRepIdx : -1;
     this.mode = st.mode || 'play';
     this.path = [];
+    this.oppChoices = [];
     this.chess = new Chess();
     this.lastMove = null;
     this.render();
@@ -62,6 +64,7 @@ const App = {
   reset() {
     this.chess = new Chess();
     this.path = [];
+    this.oppChoices = [];
     this.lastMove = null;
     this.selectedSquare = null;
     this.statusMsg = '';
@@ -122,12 +125,37 @@ const App = {
         if (!child) {
           // Wrong move! Undo and show not-in-repertoire modal
           this.chess.undo();
+          
+          // Apply +10 SRS penalty to all opponent choices that led here
+          this.oppChoices.forEach(choice => {
+            const pos = rep.getPosition(choice.fenHash);
+            if (pos) {
+              const m = pos.moves.find(x => x.san === choice.san);
+              if (m) {
+                m.weight = (m.weight !== undefined ? m.weight : 10) + 10;
+              }
+            }
+          });
+          if (this.oppChoices.length > 0) Store.saveAll(this.reps);
+
           const h = this.chess.history[this.chess.history.length-1];
           this.lastMove = h ? { from: h.move.from, to: h.move.to } : null;
           this.render();
           document.dispatchEvent(new CustomEvent('app:not-in-repertoire', { detail: { san: realMove.san } }));
           return true;
         } else {
+          // Correct move! Reward the opponent choices that led here with -1
+          this.oppChoices.forEach(choice => {
+            const pos = rep.getPosition(choice.fenHash);
+            if (pos) {
+              const m = pos.moves.find(x => x.san === choice.san);
+              if (m) {
+                m.weight = Math.max(1, (m.weight !== undefined ? m.weight : 10) - 1);
+              }
+            }
+          });
+          if (this.oppChoices.length > 0) Store.saveAll(this.reps);
+
           this.path = [...this.path, {san: realMove.san, fenHash: nextFenHash}];
           this.statusType = 'success';
           this.statusMsg = 'Correct!';
@@ -175,10 +203,32 @@ const App = {
     }
     this.busy = true;
     this.render();
+    
+    // Dynamic realistic delay
+    let delay = 300 + Math.random() * 500;
+    if (Math.random() < 0.15) delay += 800; // Occasional longer think
+    
     setTimeout(() => {
-      // Pick a random child
+      // Weighted random selection
       const moves = pos.moves;
-      const choice = moves[Math.floor(Math.random() * moves.length)];
+      let totalWeight = 0;
+      for (const m of moves) {
+        totalWeight += (m.weight !== undefined ? m.weight : 10);
+      }
+      
+      let randomVal = Math.random() * totalWeight;
+      let choice = moves[0];
+      for (const m of moves) {
+        randomVal -= (m.weight !== undefined ? m.weight : 10);
+        if (randomVal <= 0) {
+          choice = m;
+          break;
+        }
+      }
+      
+      // Cache the opponent choice context for SRS adjustment
+      this.oppChoices.push({ fenHash: this.currentFenHash(), san: choice.san });
+
       const m = this.chess.move(choice.san);
       if (m) {
         this.lastMove = m;
@@ -205,6 +255,7 @@ const App = {
   // ========== NAVIGATION ==========
   goToPath(newPath) {
     this.chess = new Chess();
+    this.oppChoices = [];
     const resolvedPath = [];
     for (const step of newPath) {
       const san = typeof step === 'string' ? step : step.san;
@@ -256,6 +307,7 @@ const App = {
   setActiveRep(idx) {
     this.activeRepIdx = idx;
     this.path = [];
+    this.oppChoices = [];
     this.chess = new Chess();
     this.lastMove = null;
     this.persistState();
@@ -267,6 +319,7 @@ const App = {
     this.reps.push(r);
     this.activeRepIdx = this.reps.length - 1;
     this.path = [];
+    this.oppChoices = [];
     this.chess = new Chess();
     this.lastMove = null;
     Store.saveAll(this.reps);
@@ -277,6 +330,7 @@ const App = {
     if (this.activeRepIdx === idx) {
       this.activeRepIdx = this.reps.length ? 0 : -1;
       this.path = [];
+      this.oppChoices = [];
       this.chess = new Chess();
       this.lastMove = null;
     } else if (this.activeRepIdx > idx) {
@@ -337,6 +391,7 @@ const App = {
           this.reps.push(Repertoire.fromJSON(data));
           this.activeRepIdx = this.reps.length - 1;
           this.path = [];
+          this.oppChoices = [];
           this.chess = new Chess();
           this.lastMove = null;
           document.dispatchEvent(new CustomEvent('app:toast', { detail: { msg: 'Imported!' } }));
