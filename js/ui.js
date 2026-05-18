@@ -55,6 +55,12 @@ function renderApp() {
     ${renderNav()}
   `;
   bindAll();
+  
+  // Auto-scroll the moves panel to the bottom so variations/latest moves are visible
+  const movesPanel = document.querySelector('.moves-panel');
+  if (movesPanel) {
+    movesPanel.scrollTop = movesPanel.scrollHeight;
+  }
 }
 
 function renderWelcome() {
