@@ -88,8 +88,8 @@
     background:#262421;
   }
   .board-container{
-    width:min(calc(100vw - 16px), 544px);
-    height:min(calc(100vw - 16px), 544px);
+    width:min(calc(100vw - 16px), 544px, calc(100vh - 230px));
+    height:min(calc(100vw - 16px), 544px, calc(100vh - 230px));
     position:relative;
     border-radius:4px;
     overflow:hidden;
@@ -101,6 +101,7 @@
     grid-template-columns:repeat(8,1fr);
     grid-template-rows:repeat(8,1fr);
     position:relative;
+    touch-action:none;
   }
   .square{
     position:relative;
@@ -192,7 +193,7 @@
     overflow-y:auto;
     border-top:1px solid #1a1816;
     -webkit-overflow-scrolling:touch;
-    min-height:80px;
+    min-height:0;
   }
   .moves-list{
     padding:8px;
