@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Icon Generator</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#1a1a1a;color:#f1f1f1;display:flex;flex-direction:column;align-items:center;padding:40px;gap:20px}
+  h2{margin:0}
+  .preview{display:flex;gap:20px;align-items:flex-end}
+  canvas{border-radius:12px;display:block}
+  button{background:#2060c8;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
+  button:hover{background:#3a7ae0}
+  button:disabled{opacity:.4;cursor:default}
+  p{color:#b1b1b1;font-size:13px;margin:0;text-align:center}
+  code{background:#333;padding:2px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<h2>Icon Generator</h2>
+<p>Renders <code>icon.svg</code> to PNG at 192×192 and 512×512.</p>
+<div class="preview">
+  <div>
+    <canvas id="c192" width="192" height="192"></canvas>
+    <p style="margin-top:8px">192×192</p>
+  </div>
+  <div>
+    <canvas id="c512" width="512" height="512"></canvas>
+    <p style="margin-top:8px">512×512</p>
+  </div>
+</div>
+<div style="display:flex;gap:12px">
+  <button id="dl192" disabled>Download icon-192.png</button>
+  <button id="dl512" disabled>Download icon-512.png</button>
+</div>
+<p id="status">Loading icon.svg…</p>
+<script>
+let blobUrl = null;
+
+fetch('icon.svg')
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  })
+  .then(svgText => {
+    const blob = new Blob([svgText], { type: 'image/svg+xml' });
+    blobUrl = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = function() {
+      ['192', '512'].forEach(size => {
+        const n = +size;
+        const ctx = document.getElementById('c' + size).getContext('2d');
+        ctx.clearRect(0, 0, n, n);
+        ctx.drawImage(img, 0, 0, n, n);
+      });
+      document.getElementById('dl192').disabled = false;
+      document.getElementById('dl512').disabled = false;
+      document.getElementById('status').textContent = 'Ready — click a button to download.';
+      URL.revokeObjectURL(blobUrl);
+    };
+    img.onerror = () => {
+      document.getElementById('status').textContent = 'Error rendering SVG.';
+    };
+    img.src = blobUrl;
+  })
+  .catch(err => {
+    document.getElementById('status').innerHTML =
+      'Could not load icon.svg: ' + err.message +
+      '<br>Serve this file over HTTP (e.g. <code>python -m http.server 8080</code>) rather than opening it directly as a file.';
+  });
+
+function download(size) {
+  const canvas = document.getElementById('c' + size);
+  const a = document.createElement('a');
+  a.download = 'icon-' + size + '.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+document.getElementById('dl192').onclick = () => download('192');
+document.getElementById('dl512').onclick = () => download('512');
+</script>
+</body>
+</html>
