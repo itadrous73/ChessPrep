@@ -41,7 +41,7 @@
 
   .app{
     display:flex;flex-direction:column;
-    height:100vh;height:100dvh;
+    height:100vh;height:100dvh;height:100%;
     max-width:560px;margin:0 auto;
     background:#262421;
     padding-top:env(safe-area-inset-top);
