@@ -28,5 +28,12 @@ document.addEventListener('touchend', (e) => {
   lastTouch = now;
 }, { passive: false });
 
+// Fix iOS PWA viewport height — window.innerHeight is the only reliable value
+function syncAppHeight() {
+  document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+}
+syncAppHeight();
+window.addEventListener('resize', syncAppHeight);
+
 // Boot
 App.init();
