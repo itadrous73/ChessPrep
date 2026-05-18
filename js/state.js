@@ -52,9 +52,12 @@ const App = {
     const rep = this.activeRep(); if (!rep) return true;
     return this.chess.turn() === rep.color[0];
   },
-  currentNode() {
+  currentFenHash() {
+    return Repertoire.getPosHash(this.chess.fen());
+  },
+  currentPosition() {
     const rep = this.activeRep(); if (!rep) return null;
-    return rep.nodeAt(this.path);
+    return rep.getPosition(this.currentFenHash());
   },
   reset() {
     this.chess = new Chess();
@@ -92,15 +95,26 @@ const App = {
     // Now handle based on mode
     const rep = this.activeRep();
     if (this.mode === 'edit' && rep) {
+      // Revert move to get prev FEN
+      this.chess.undo();
+      const prevFenHash = this.currentFenHash();
+      this.chess.move(realMove);
+      const nextFenHash = this.currentFenHash();
+
       // Always add to repertoire
-      rep.addMove(this.path, realMove.san);
-      this.path = [...this.path, realMove.san];
+      rep.addMove(prevFenHash, realMove.san, '', nextFenHash);
+      this.path = [...this.path, {san: realMove.san, fenHash: nextFenHash}];
       Store.saveAll(this.reps);
       this.markDirty();
       this.statusMsg = '';
     } else if (this.mode === 'play' && rep) {
-      const parent = rep.nodeAt(this.path);
-      const child = parent ? parent.children.find(c => c.san === realMove.san) : null;
+      this.chess.undo();
+      const prevFenHash = this.currentFenHash();
+      this.chess.move(realMove);
+      const nextFenHash = this.currentFenHash();
+
+      const pos = rep.getPosition(prevFenHash);
+      const child = pos ? pos.moves.find(c => c.san === realMove.san) : null;
       if (this.isUserTurnBefore()) {
         // User just moved (now it's not user's turn).
         // Check correctness only when it was user's turn
@@ -114,13 +128,13 @@ const App = {
           document.dispatchEvent(new CustomEvent('app:not-in-repertoire', { detail: { san: realMove.san } }));
           return true;
         } else {
-          this.path = [...this.path, realMove.san];
+          this.path = [...this.path, {san: realMove.san, fenHash: nextFenHash}];
           this.statusType = 'success';
           this.statusMsg = 'Correct!';
         }
       } else {
         // This shouldn't happen — user can't move opponent's pieces — but handle defensively
-        this.path = [...this.path, realMove.san];
+        this.path = [...this.path, {san: realMove.san, fenHash: nextFenHash}];
       }
     } else {
       // No rep, freeplay
@@ -145,14 +159,14 @@ const App = {
     if (this.mode !== 'play') return;
     const rep = this.activeRep(); if (!rep) return;
     if (this.isUserTurn()) {
-      const node = rep.nodeAt(this.path);
-      if (node && node.children.length === 0 && this.path.length > 0) {
+      const pos = this.currentPosition();
+      if (pos && pos.moves.length === 0 && this.path.length > 0) {
         document.dispatchEvent(new CustomEvent('app:line-complete'));
       }
       return;
     }
     if (this.chess.isGameOver()) return;
-    const node = rep.nodeAt(this.path); if (!node || !node.children.length) {
+    const pos = this.currentPosition(); if (!pos || !pos.moves.length) {
       document.dispatchEvent(new CustomEvent('app:line-complete'));
       return;
     }
@@ -160,20 +174,20 @@ const App = {
     this.render();
     setTimeout(() => {
       // Pick a random child
-      const children = node.children;
-      const choice = children[Math.floor(Math.random() * children.length)];
+      const moves = pos.moves;
+      const choice = moves[Math.floor(Math.random() * moves.length)];
       const m = this.chess.move(choice.san);
       if (m) {
         this.lastMove = m;
-        this.path = [...this.path, choice.san];
+        this.path = [...this.path, {san: choice.san, fenHash: this.currentFenHash()}];
         this.statusType = 'normal';
         this.statusMsg = '';
       }
       this.busy = false;
       this.render();
       // Check if the user has no more moves stored (end of line)
-      const newNode = rep.nodeAt(this.path);
-      if (newNode && newNode.children.length === 0) {
+      const newPos = this.currentPosition();
+      if (newPos && newPos.moves.length === 0) {
         setTimeout(() => document.dispatchEvent(new CustomEvent('app:line-complete')), 500);
       }
     }, 450);
@@ -182,8 +196,13 @@ const App = {
   // ========== NAVIGATION ==========
   goToPath(newPath) {
     this.chess = new Chess();
-    for (const san of newPath) this.chess.move(san);
-    this.path = newPath.slice();
+    const resolvedPath = [];
+    for (const step of newPath) {
+      const san = typeof step === 'string' ? step : step.san;
+      this.chess.move(san);
+      resolvedPath.push({san, fenHash: this.currentFenHash()});
+    }
+    this.path = resolvedPath;
     this.lastMove = null;
     if (this.chess.history.length > 0) {
       const h = this.chess.history[this.chess.history.length-1];
@@ -198,10 +217,11 @@ const App = {
     this.goToPath(this.path.slice(0, -1));
   },
   goForward() {
-    const node = this.currentNode();
-    if (!node || node.children.length === 0) return;
+    const pos = this.currentPosition();
+    if (!pos || pos.moves.length === 0) return;
     // Take first variation (or only one)
-    this.goToPath([...this.path, node.children[0].san]);
+    const san = pos.moves[0].san;
+    this.goToPath([...this.path, {san}]);
   },
 
   // ========== MODE SWITCH ==========
@@ -304,7 +324,7 @@ const App = {
             count++;
           }
           document.dispatchEvent(new CustomEvent('app:toast', { detail: { msg: `Imported ${count} repertoire${count===1?'':'s'}` } }));
-        } else if (data.root && data.color) {
+        } else if ((data.positions || data.root) && data.color) {
           this.reps.push(Repertoire.fromJSON(data));
           this.activeRepIdx = this.reps.length - 1;
           this.path = [];
