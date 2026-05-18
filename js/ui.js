@@ -165,8 +165,16 @@ function renderStatus() {
 function renderMovesPanel() {
   const rep = App.activeRep();
   if (!rep) return '';
-  const node = App.currentNode();
-  const comment = node && node.comment ? `<div class="comment-display">${escapeHtml(node.comment)}</div>` : '';
+  const pos = App.currentPosition();
+  let currentMove = null;
+  if (App.path.length > 0) {
+    const last = App.path[App.path.length - 1];
+    const prevFenHash = App.path.length > 1 ? App.path[App.path.length - 2].fenHash : Repertoire.getPosHash("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    const prevPos = rep.getPosition(prevFenHash);
+    if (prevPos) currentMove = prevPos.moves.find(m => m.san === last.san);
+  }
+  const commentText = currentMove ? currentMove.comment : '';
+  const comment = commentText ? `<div class="comment-display">${escapeHtml(commentText)}</div>` : '';
 
   // Build move list from path — only shown in edit mode
   let moveList = '';
@@ -175,17 +183,19 @@ function renderMovesPanel() {
       moveList = `<div class="moves-empty">Make a move on the board to start building your repertoire.</div>`;
     } else {
       let rows = [];
+      const START_FEN_HASH = Repertoire.getPosHash("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
       for (let i = 0; i < App.path.length; i += 2) {
         const num = Math.floor(i / 2) + 1;
         const w = App.path[i];
         const b = App.path[i + 1];
-        const wAlts = countSiblingAlternatives(rep, App.path.slice(0, i));
-        const bAlts = b ? countSiblingAlternatives(rep, App.path.slice(0, i+1)) : 0;
+        const wFenHash = i === 0 ? START_FEN_HASH : App.path[i - 1].fenHash;
+        const wAlts = countSiblingAlternatives(rep, wFenHash);
+        const bAlts = b ? countSiblingAlternatives(rep, w.fenHash) : 0;
         const wIsCurrent = (i + 1 === App.path.length);
         const bIsCurrent = (i + 2 === App.path.length);
         rows.push(`<div class="move-num">${num}.</div>`);
-        rows.push(`<div class="move-cell ${wIsCurrent?'current':''}" data-go-idx="${i+1}">${escapeHtml(w)}${wAlts>0?` <span class="alt-count">+${wAlts}</span>`:''}</div>`);
-        rows.push(`<div class="move-cell ${bIsCurrent?'current':''} ${!b?'empty':''}" ${b?`data-go-idx="${i+2}"`:''}>${b?escapeHtml(b):'…'}${bAlts>0?` <span class="alt-count">+${bAlts}</span>`:''}</div>`);
+        rows.push(`<div class="move-cell ${wIsCurrent?'current':''}" data-go-idx="${i+1}">${escapeHtml(w.san)}${wAlts>0?` <span class="alt-count">+${wAlts}</span>`:''}</div>`);
+        rows.push(`<div class="move-cell ${bIsCurrent?'current':''} ${!b?'empty':''}" ${b?`data-go-idx="${i+2}"`:''}>${b?escapeHtml(b.san):'…'}${bAlts>0?` <span class="alt-count">+${bAlts}</span>`:''}</div>`);
       }
       moveList = `<div class="moves-list">${rows.join('')}</div>`;
     }
@@ -194,21 +204,21 @@ function renderMovesPanel() {
   // Variations list — only shown in edit mode
   let variations = '';
   if (App.mode === 'edit') {
-    if (node && node.children.length > 0) {
+    if (pos && pos.moves && pos.moves.length > 0) {
       const turn = App.chess.turn();
       const isUserTurn = turn === rep.color[0];
       const heading = isUserTurn
-        ? (node.children.length > 1 ? `Your options here (${node.children.length})` : 'Continue with')
-        : `Opponent replies in your book (${node.children.length})`;
+        ? (pos.moves.length > 1 ? `Your options here (${pos.moves.length})` : 'Continue with')
+        : `Opponent replies in your book (${pos.moves.length})`;
       variations = `
         <div style="padding:10px 14px 4px;font-size:12px;color:#8a8784;font-weight:600;text-transform:uppercase;letter-spacing:.5px">${heading}</div>
         <div style="padding:0 10px 12px">
           <div class="variations-list">
-            ${node.children.map(c => `
+            ${pos.moves.map(c => `
               <div class="variation-item" data-play-san="${escapeHtml(c.san)}">
                 <span class="var-move">${escapeHtml(c.san)}</span>
                 <span class="var-desc">${escapeHtml(c.comment || '')}</span>
-                ${c.children.length>0 ? `<span class="var-children">${countTreeMoves(c)} mv</span>` : ''}
+                ${rep.getPosition(c.nextFenHash)?.moves?.length>0 ? `<span class="var-children">${countDAGMoves(rep, c.nextFenHash)} mv</span>` : ''}
                 <button class="icon-btn" data-del-san="${escapeHtml(c.san)}" style="width:28px;height:28px" aria-label="Delete variation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
               </div>
             `).join('')}
@@ -226,7 +236,7 @@ function renderMovesPanel() {
     commentBtn = `
       <div style="padding:0 14px 10px">
         <button class="btn btn-secondary" id="btn-comment" style="font-size:13px;padding:8px">
-          ${node && node.comment ? 'Edit comment' : 'Add comment to this move'}
+          ${currentMove && currentMove.comment ? 'Edit comment' : 'Add comment to this move'}
         </button>
       </div>
     `;
@@ -243,19 +253,23 @@ function renderMovesPanel() {
   `;
 }
 
-function countSiblingAlternatives(rep, parentPath) {
-  const parent = rep.nodeAt(parentPath);
-  if (!parent) return 0;
-  return Math.max(0, parent.children.length - 1);
+function countSiblingAlternatives(rep, fenHash) {
+  const pos = rep.getPosition(fenHash);
+  if (!pos || !pos.moves) return 0;
+  return Math.max(0, pos.moves.length - 1);
 }
-function countTreeMoves(node) {
-  return node.children.reduce((s, c) => s + 1 + countTreeMoves(c), 0);
+function countDAGMoves(rep, fenHash, visited = new Set()) {
+  if (visited.has(fenHash)) return 0;
+  visited.add(fenHash);
+  const pos = rep.getPosition(fenHash);
+  if (!pos || !pos.moves) return 0;
+  return pos.moves.reduce((s, m) => s + 1 + countDAGMoves(rep, m.nextFenHash, visited), 0);
 }
 
 function renderNav() {
   const hasBack = App.path.length > 0;
-  const node = App.currentNode();
-  const hasFwd = node && node.children.length > 0;
+  const pos = App.currentPosition();
+  const hasFwd = pos && pos.moves && pos.moves.length > 0;
   return `
     <div class="nav-bar">
       <button class="nav-btn" id="nav-back" ${!hasBack?'disabled style="opacity:.4"':''} aria-label="Back">
@@ -344,7 +358,7 @@ function bindAll() {
       const m = App.chess.move(san);
       if (m) {
         App.lastMove = m;
-        App.path = [...App.path, san];
+        App.path = [...App.path, {san, fenHash: App.currentFenHash()}];
         App.statusMsg = ''; App.statusType = 'normal';
         App.render();
         if (App.mode === 'play') setTimeout(() => App.maybeOppMove(), 350);
@@ -358,7 +372,7 @@ function bindAll() {
       e.stopPropagation();
       const san = el.dataset.delSan;
       openDeleteVariationModal(san, () => {
-        App.activeRep().deleteAt([...App.path, san]);
+        App.activeRep().deleteMove(App.currentFenHash(), san);
         Store.saveAll(App.reps);
         App.markDirty();
         App.render();
@@ -639,11 +653,18 @@ function openDeleteRepModal(repIndex) {
 }
 
 function openCommentModal() {
-  const node = App.currentNode();
-  if (!node) return;
-  const curComment = node.comment || '';
+  const rep = App.activeRep();
+  if (!rep || App.path.length === 0) return;
+  const last = App.path[App.path.length - 1];
+  const prevFenHash = App.path.length > 1 ? App.path[App.path.length - 2].fenHash : Repertoire.getPosHash("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+  const prevPos = rep.getPosition(prevFenHash);
+  if (!prevPos) return;
+  const currentMove = prevPos.moves.find(m => m.san === last.san);
+  if (!currentMove) return;
+
+  const curComment = currentMove.comment || '';
   showModal({
-    title: 'Comment for ' + (App.path[App.path.length-1] || 'this position'),
+    title: 'Comment for ' + last.san,
     body: `
       <label>Notes / annotation</label>
       <textarea id="comment-text" placeholder="e.g. 'Main line', 'Avoid pawn structure trap'…">${escapeHtml(curComment)}</textarea>
@@ -658,7 +679,7 @@ function openCommentModal() {
   document.getElementById('cmt-cancel').onclick = closeModal;
   document.getElementById('cmt-save').onclick = () => {
     const text = document.getElementById('comment-text').value;
-    node.comment = text;
+    currentMove.comment = text;
     App.activeRep().updatedAt = Date.now();
     Store.saveAll(App.reps);
     App.markDirty();
