@@ -158,6 +158,10 @@ const App = {
   maybeOppMove() {
     if (this.mode !== 'play') return;
     const rep = this.activeRep(); if (!rep) return;
+    if (this.chess.isGameOver()) {
+      document.dispatchEvent(new CustomEvent('app:line-complete'));
+      return;
+    }
     if (this.isUserTurn()) {
       const pos = this.currentPosition();
       if (pos && pos.moves.length === 0 && this.path.length > 0) {
@@ -165,7 +169,6 @@ const App = {
       }
       return;
     }
-    if (this.chess.isGameOver()) return;
     const pos = this.currentPosition(); if (!pos || !pos.moves.length) {
       document.dispatchEvent(new CustomEvent('app:line-complete'));
       return;
@@ -185,6 +188,12 @@ const App = {
       }
       this.busy = false;
       this.render();
+      
+      if (this.chess.isGameOver()) {
+        setTimeout(() => document.dispatchEvent(new CustomEvent('app:line-complete')), 500);
+        return;
+      }
+      
       // Check if the user has no more moves stored (end of line)
       const newPos = this.currentPosition();
       if (newPos && newPos.moves.length === 0) {
