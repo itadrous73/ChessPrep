@@ -6,6 +6,37 @@ import { PIECE_SVG } from './pieces.js';
 import { Repertoire } from './repertoire.js';
 import { Store } from './storage.js';
 
+let interactionStartSq = null;
+
+document.addEventListener('pointerdown', (e) => {
+  if (App.pendingPromo || App.busy) return;
+  // Ignore right clicks
+  if (e.button !== undefined && e.button !== 0) return;
+  const sq = e.target.closest('.square');
+  if (sq && sq.closest('.board')) {
+    e.preventDefault();
+    interactionStartSq = { r: +sq.dataset.r, f: +sq.dataset.f };
+    handleSquareClick(interactionStartSq.r, interactionStartSq.f);
+  } else {
+    interactionStartSq = null;
+  }
+});
+
+document.addEventListener('pointerup', (e) => {
+  if (App.pendingPromo || App.busy || !interactionStartSq) return;
+  
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const sq = el ? el.closest('.square') : null;
+  if (sq && sq.closest('.board')) {
+    const r = +sq.dataset.r, f = +sq.dataset.f;
+    // If dropped on a different square, fire handleSquareClick to attempt the move
+    if (r !== interactionStartSq.r || f !== interactionStartSq.f) {
+      handleSquareClick(r, f);
+    }
+  }
+  interactionStartSq = null;
+});
+
 // =============================================================
 // RENDERING
 // =============================================================
@@ -314,15 +345,6 @@ function bindAll() {
     if (!App.dirty) { App.setMode('play', { force: true }); return; }
     openUnsavedChangesModal();
   };
-
-  // Board squares
-  document.querySelectorAll('#board .square').forEach(sq => {
-    sq.onclick = () => {
-      if (App.pendingPromo || App.busy) return;
-      const r = +sq.dataset.r, f = +sq.dataset.f;
-      handleSquareClick(r, f);
-    };
-  });
 
   // Promotion
   if (App.pendingPromo) {
