@@ -5,60 +5,56 @@
 // Root has no san. Children of root = 1st ply moves.
 
 class Repertoire {
-  constructor(name, color, root) {
+  constructor(name, color, positions) {
     this.name = name || 'New Repertoire';
-    this.color = color || 'white';      // user plays this color
-    this.root = root || { children: [] };
+    this.color = color || 'white';
+    this.positions = positions || {};
     this.createdAt = Date.now();
     this.updatedAt = Date.now();
   }
+  static getPosHash(fen) {
+    return fen.split(' ').slice(0, 4).join(' ');
+  }
   static fromJSON(j) {
-    const r = new Repertoire(j.name, j.color, j.root);
+    const r = new Repertoire(j.name, j.color, j.positions);
     r.createdAt = j.createdAt || Date.now();
     r.updatedAt = j.updatedAt || Date.now();
     return r;
   }
   toJSON() {
-    return { version: 1, name: this.name, color: this.color, root: this.root, createdAt: this.createdAt, updatedAt: this.updatedAt };
+    return { version: 2, name: this.name, color: this.color, positions: this.positions, createdAt: this.createdAt, updatedAt: this.updatedAt };
   }
-  // Navigate from root following SANs in path, return node or null
-  nodeAt(path) {
-    let n = this.root;
-    for (const san of path) {
-      const ch = n.children.find(c => c.san === san);
-      if (!ch) return null;
-      n = ch;
+  getPosition(fenHash) {
+    return this.positions[fenHash] || { moves: [] };
+  }
+  addMove(fenHash, san, comment, nextFenHash) {
+    if (!this.positions[fenHash]) {
+      this.positions[fenHash] = { moves: [] };
     }
-    return n;
-  }
-  // Add a move; returns the new (or existing) child node
-  addMove(path, san, comment) {
-    const parent = this.nodeAt(path);
-    if (!parent) return null;
-    let child = parent.children.find(c => c.san === san);
-    if (!child) {
-      child = { san, comment: comment || '', children: [] };
-      parent.children.push(child);
+    let move = this.positions[fenHash].moves.find(m => m.san === san);
+    if (!move) {
+      move = { san, comment: comment || '', nextFenHash };
+      this.positions[fenHash].moves.push(move);
     } else if (comment !== undefined) {
-      child.comment = comment;
+      move.comment = comment;
     }
     this.updatedAt = Date.now();
-    return child;
+    return move;
   }
-  deleteAt(path) {
-    if (path.length === 0) return false;
-    const parent = this.nodeAt(path.slice(0, -1));
-    if (!parent) return false;
-    const idx = parent.children.findIndex(c => c.san === path[path.length-1]);
+  deleteMove(fenHash, san) {
+    if (!this.positions[fenHash]) return false;
+    const idx = this.positions[fenHash].moves.findIndex(m => m.san === san);
     if (idx < 0) return false;
-    parent.children.splice(idx, 1);
+    this.positions[fenHash].moves.splice(idx, 1);
     this.updatedAt = Date.now();
     return true;
   }
-  // Count total moves in tree
   countMoves() {
-    const walk = (n) => n.children.reduce((s, c) => s + 1 + walk(c), 0);
-    return walk(this.root);
+    let count = 0;
+    for (const fenHash in this.positions) {
+      count += this.positions[fenHash].moves.length;
+    }
+    return count;
   }
 }
 
